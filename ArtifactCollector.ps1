@@ -137,10 +137,12 @@ function ArtifactCollector {
             $objSID = $objAct.Translate([System.Security.Principal.SecurityIdentifier])
             $SID = [string]$objSID.Value
 
-            $MemberOf = [string[]]$_.Properties.memberof | ForEach-Object {
-                if ($_ -match 'LDAP://') {
-                    $_.Replace('LDAP://','')
+            $MemberOf = $_.Properties.memberof | ForEach-Object {
+                $EachMember = $_
+                if ($EachMember -match 'LDAP://') {
+                    $EachMember = $EachMember.Replace('LDAP://','')
                 }
+                $EachMember
             }
 
             [pscustomobject][ordered]@{
