@@ -219,10 +219,11 @@ function ArtifactCollector {
         $GroupPolicies = ([adsisearcher]"(objectCategory=groupPolicyContainer)").FindAll() | ForEach-Object {
 
             $GpFsPath = [string]$_.Properties.gpcfilesyspath
-            $GpGuid = Split-Path -Path $GpFsPath -Leaf
+            $GpGuid = [string](Split-Path -Path $GpFsPath -Leaf)
 
             [pscustomobject][ordered]@{
                 Name = [string]$_.Properties.displayname
+                DistinguishedName = [string]$_.Properties.distinguishedname
                 Path = $GpFsPath
                 Guid = $GpGuid
             }
@@ -252,15 +253,15 @@ function ArtifactCollector {
         Write-Verbose -Message 'Start gathering OUs'
         $OUs = ([adsisearcher]"(objectCategory=organizationalUnit)").FindAll() | ForEach-Object {
 
-            $GpLink = [string]$_.Properties.gplink
+            $GpLink = $_.Properties.gplink
 
             Write-Verbose -Message 'Checking for linked GPOs'
-            if ($GpLink -match 'LDAP://cn=') {
+            if ($GpLink -imatch 'LDAP://cn=') {
 
                 Write-Verbose -Message 'Linked GPOs detected'
 
                 Write-Verbose -Message 'Parsing gplink [string] into [pscustomobject[]]'
-                $LinkedGPOs = $_.Properties.gplink.Split('][') | ForEach-Object {
+                $LinkedGPOs = $GpLink.Split('][') | Where-Object { $_ -imatch 'cn=' } | ForEach-Object {
 
                     $Guid = $_.Split(';')[0].Trim('[').Split(',')[0] -ireplace 'LDAP://cn=',''
                     $Name = $GpHt[$Guid].Name
@@ -307,6 +308,7 @@ function ArtifactCollector {
             [pscustomobject][ordered]@{
                 Name = [string]$_.Properties.name
                 DistinguishedName = [string]$_.Properties.distinguishedname
+                Description = [string]$_.Properties.description
                 LinkedGPOs = $LinkedGPOs
                 BlockedInheritance = $BlockedInheritance
             }
