@@ -117,7 +117,10 @@ function ArtifactCollector {
             [pscustomobject][ordered]@{
                 ComputerName = [string]$_.Properties.name
                 OperatingSystem = [string]$_.Properties.operatingsystem
+                DistinguishedName = [string]$_.Properties.distinguishedname
                 Description = [string]$_.Properties.description
+                ServicePrincipalName = $_.Properties.serviceprincipalname
+                MemberOf = $_.Properties.memberof
             }
 
             $Params = @{
@@ -149,6 +152,8 @@ function ArtifactCollector {
                 SamAccountName = $SamAccountName
                 UserPrincipalName = [string]$_.Properties.userprincipalname
                 SID = $SID
+                DistinguishedName = [string]$_.Properties.distinguishedname
+                Description = [string]$_.Properties.description
                 MemberOf = $MemberOf
             }
 
@@ -164,10 +169,41 @@ function ArtifactCollector {
         Write-Verbose -Message 'Start gathering groups'
         $Groups = ([adsisearcher]"(objectCategory=group)").FindAll() | ForEach-Object {
 
+            $Member = $_.Properties.member | ForEach-Object {
+                $EachMember = $_
+                if ($EachMember -match 'LDAP://') {
+                    $EachMember = $EachMember.Replace('LDAP://','')
+                }
+                $EachMember
+            }
+
+            $MemberOf = $_.Properties.memberof | ForEach-Object {
+                $EachMember = $_
+                if ($EachMember -match 'LDAP://') {
+                    $EachMember = $EachMember.Replace('LDAP://','')
+                }
+                $EachMember
+            }
+
+            $GroupTypeRaw = $_.Properties.grouptype
+
+            $GroupType = switch -Exact ($GroupTypeRaw) {
+                2 {'Global Distribution Group'}
+                4 {'Domain Local Distribution Group'}
+                8 {'Universal Distribution Group'}
+                -2147483646 {'Global Security Group'}
+                -2147483644 {'Domain Local Security Group'}
+                -2147483643 {'Built-In Group'}
+                -2147483640 {'Universal Security Group'}
+            }
+
             [pscustomobject][ordered]@{
                 SamAccountName = [string]$_.Properties.samaccountname
+                GroupType = $GroupType
                 Description = [string]$_.Properties.description
-                Path = [string]$_.Properties.adspath
+                DistinguishedName = [string]$_.Properties.distinguishedname
+                Member = $Member
+                MemberOf = $MemberOf
             }
 
             $Params = @{
