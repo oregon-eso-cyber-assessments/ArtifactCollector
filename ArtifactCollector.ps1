@@ -84,26 +84,6 @@ function ArtifactCollector {
 
         $DomainJoined = (Get-CimInstance -ClassName CIM_ComputerSystem).PartOfDomain
 
-        Write-Verbose -Message 'Get a list of DHCP servers from ActiveDirectory'
-        $DhcpSearcher = [adsisearcher]"(&(objectClass=dhcpclass)(!(name=DhcpRoot)))"
-        $ConfigRoot = ([adsi]"LDAP://RootDSE").configurationNamingContext
-        $DhcpSearcher.SearchRoot = [adsi]"LDAP://CN=NetServices,CN=Services,$ConfigRoot"
-        $DhcpServers = $DhcpSearcher.FindAll() | ForEach-Object { $_.Properties.name }
-
-        Write-Verbose -Message 'Get a list of domain controllers'
-        $Domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()
-        $DomainControllers = $Domain.FindAllDomainControllers() | ForEach-Object {
-            [pscustomobject][ordered]@{
-                Name = $_.Name
-                IpAddress = $_.IPAddress
-                Roles = $_.Roles
-            }
-        }
-
-        Write-Verbose -Message 'Get domain name'
-        $DomainName = $Domain.Name
-        $DomainName = $DomainName.ToUpper()
-
         Write-Verbose -Message 'Generate a unique name for ArtifactCollector output'
         $ArtifactDir = "$env:USERPROFILE\Downloads\Artifacts_$(Get-Date -Format yyyyMMdd_HHmm)"
         $ArtifactFile = "$ArtifactDir.zip"
@@ -114,6 +94,47 @@ function ArtifactCollector {
         ### endregion Prep ###
 
         ### region AD ###
+        Write-Verbose -Message 'Get a list of domain controllers'
+        $Domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()
+        $DomainControllers = $Domain.FindAllDomainControllers() | ForEach-Object {
+
+            [pscustomobject][ordered]@{
+                Name = $_.Name
+                IpAddress = $_.IPAddress
+                Roles = $_.Roles
+            }
+
+            $Params = @{
+                Activity = 'Active Directory: Enumerating Domain Controllers'
+                Status = "Now Processing: $($_.name)"
+            }
+
+            Write-Progress @Params
+
+        } # $DomainControllers
+
+        Write-Verbose -Message 'Get a list of DHCP servers from ActiveDirectory'
+        $DhcpSearcher = [adsisearcher]"(&(objectClass=dhcpclass)(!(name=DhcpRoot)))"
+        $ConfigRoot = ([adsi]"LDAP://RootDSE").configurationNamingContext
+        $DhcpSearcher.SearchRoot = [adsi]"LDAP://CN=NetServices,CN=Services,$ConfigRoot"
+
+        $DhcpServers = $DhcpSearcher.FindAll() | ForEach-Object {
+
+            $_.Properties.name
+
+            $Params = @{
+                Activity = 'Active Directory: Enumerating DHCP Servers'
+                Status = "Now Processing: $($_.Properties.name)"
+            }
+
+            Write-Progress @Params
+
+        } # $DhcpServers
+
+        Write-Verbose -Message 'Get domain name'
+        $DomainName = $Domain.Name
+        $DomainName = $DomainName.ToUpper()
+
         Write-Verbose -Message 'Start gathering subnets'
         $Subnets = [System.DirectoryServices.ActiveDirectory.ActiveDirectorySite]::GetComputerSite().Subnets |
         ForEach-Object {
