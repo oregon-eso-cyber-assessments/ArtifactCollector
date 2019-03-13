@@ -1,5 +1,5 @@
 # ArtifactCollector  
-PowerShell Tool to Collect Artifacts for Cybersecurity Assessments  
+A PowerShell Tool to Collect Artifacts for Cybersecurity Assessments  
   
 To run ArtifactCollector:  
   
