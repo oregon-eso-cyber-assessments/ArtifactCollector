@@ -74,6 +74,28 @@ function ArtifactCollector {
         Write-Verbose -Message 'Determine the PowerShell Version'
         $PowVer = $PSVersionTable.PSVersion.Major
 
+        $LogonLogoff7Days = [xml]@'
+<QueryList>
+  <Query Id="0" Path="Security">
+    <Select Path="Security">
+    *[System[
+        Provider[@Name='Microsoft-Windows-Security-Auditing']
+        and
+        (Level=4 or Level=0)
+        and
+        (EventID=4624 or EventID=4625)
+        and
+        TimeCreated[timediff(@SystemTime) &lt;= 604800000]
+    ]]
+    and
+    *[EventData[
+        Data[@Name='TargetUserName'] != 'ANONYMOUS LOGON'
+    ]]
+    </Select>
+  </Query>
+</QueryList>
+'@
+
     } #begin
 
     process {
@@ -378,6 +400,62 @@ function ArtifactCollector {
         }
 
         $AdInfo | Export-Clixml -Path .\ActiveDirectory.xml
+
+        Write-Verbose -Message 'Gather logs from DCs'
+        $DCs = $AdInfo.DomainControllers.Name
+
+        if ($DCs) {
+
+            $DirName = 'EventLogs'
+            New-Item -Path .\$DirName -ItemType Directory | Out-Null
+
+            $DcLogs = New-Object -TypeName System.Collections.ArrayList
+
+            $DCs | ForEach-Object {
+
+                $EachDc = $_
+
+                $ErrorActionPreferenceBak = $ErrorActionPreference
+                $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
+    
+                try {
+    
+                    $DcEvents = Get-WinEvent -ComputerName $EachDc -FilterXml $LogonLogoff7Days
+
+                    foreach ($DcEvent in $DcEvents) {
+
+                        [void]$DcLogs.Add($DcEvent)
+
+                    } #foreach
+
+                    Remove-Variable -Name DcEvents
+
+                    $Params = @{
+                        Activity = 'Active Directory: Gathering Event Logs'
+                        Status = "Now Processing: Logs from $EachDc"
+                    }
+        
+                    Write-Progress @Params
+    
+                } catch {
+    
+                    Write-Verbose -Message "Error gathering logs from $EachDc"
+    
+                }
+    
+                $ErrorActionPreference = $ErrorActionPreferenceBak
+    
+            } # DC Logs
+
+            if ($DcLogs) {
+
+                $DcLogs = $DcLogs | Sort-Object -Property TimeCreated
+
+                $DcLogs | Export-Clixml -Path .\$DirName\DcLogs.xml
+
+            } #if ($DcLogs)
+
+        } #if ($DCs)
         ### endregion AD ###
 
         ### region GPO ###
