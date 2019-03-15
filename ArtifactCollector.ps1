@@ -6,7 +6,7 @@ function ArtifactCollector {
     .DESCRIPTION
         Collects artifacts for cyber assessments.
             - Active Directory: Domain Controllers, DHCP Servers, Subnets,
-              Computers, Users, Groups, Group Policies, and OUs
+              Computers, Users, Groups, Group Policies, OUs, and Event Logs
             - PDQ Inventory database
             - Endpoint Security logs
             - WiFi Profiles
@@ -56,7 +56,7 @@ function ArtifactCollector {
         Collects artifacts for cyber assessments using native tools.
         No out-of-box PowerShell modules are required.
             - Active Directory: Domain Controllers, DHCP Servers, Subnets,
-              Computers, Users, Groups, Group Policies, and OUs
+              Computers, Users, Groups, Group Policies, OUs, and Event Logs
             - PDQ Inventory database
             - Endpoint Security logs
             - WiFi Profiles
