@@ -9,7 +9,7 @@ function ArtifactCollector {
               Computers, Users, Groups, Group Policies, OUs, and Event Logs
             - PDQ Inventory database
             - Endpoint Security logs
-            - WiFi Profiles
+            - Wi-Fi Profiles
     .EXAMPLE
         ArtifactCollector
         Collects all artifacts and zips them into an archive for transport.
@@ -59,7 +59,7 @@ function ArtifactCollector {
               Computers, Users, Groups, Group Policies, OUs, and Event Logs
             - PDQ Inventory database
             - Endpoint Security logs
-            - WiFi Profiles
+            - Wi-Fi Profiles
     #>
 
     [CmdletBinding()]
