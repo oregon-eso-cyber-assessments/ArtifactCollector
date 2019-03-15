@@ -78,7 +78,7 @@ function ArtifactCollector {
 <QueryList>
   <Query Id="0" Path="Security">
     <Select Path="Security">
-    *[System[
+      *[System[
         Provider[@Name='Microsoft-Windows-Security-Auditing']
         and
         (Level=4 or Level=0)
@@ -86,11 +86,11 @@ function ArtifactCollector {
         (EventID=4624 or EventID=4625)
         and
         TimeCreated[timediff(@SystemTime) &lt;= 604800000]
-    ]]
-    and
-    *[EventData[
+      ]]
+      and
+      *[EventData[
         Data[@Name='TargetUserName'] != 'ANONYMOUS LOGON'
-    ]]
+      ]]
     </Select>
   </Query>
 </QueryList>
@@ -104,8 +104,6 @@ function ArtifactCollector {
         Write-Verbose -Message 'Set dotnet to use TLS 1.2'
         [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 
-        $DomainJoined = (Get-CimInstance -ClassName CIM_ComputerSystem).PartOfDomain
-
         Write-Verbose -Message 'Generate a unique name for ArtifactCollector output'
         $ArtifactDir = "$env:USERPROFILE\Downloads\Artifacts_$(Get-Date -Format yyyyMMdd_HHmm)"
         $ArtifactFile = "$ArtifactDir.zip"
@@ -113,371 +111,376 @@ function ArtifactCollector {
         Write-Verbose -Message 'Create output directory'
         New-Item -Path $ArtifactDir -ItemType Directory -Force | Out-Null
         Push-Location -Path $ArtifactDir
+
+        $DomainJoined = (Get-CimInstance -ClassName CIM_ComputerSystem).PartOfDomain
         ### endregion Prep ###
 
-        ### region AD ###
-        Write-Verbose -Message 'Get a list of domain controllers'
-        $Domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()
-        $DomainControllers = $Domain.FindAllDomainControllers() | ForEach-Object {
+        if ($DomainJoined) {
 
-            [pscustomobject][ordered]@{
-                Name = $_.Name
-                IpAddress = $_.IPAddress
-                Roles = $_.Roles
-            }
+            ### region AD ###
+            Write-Verbose -Message 'Get a list of domain controllers'
+            $Domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()
+            $DomainControllers = $Domain.FindAllDomainControllers() | ForEach-Object {
 
-            $Params = @{
-                Activity = 'Active Directory: Enumerating Domain Controllers'
-                Status = "Now Processing: $($_.name)"
-            }
-
-            Write-Progress @Params
-
-        } # $DomainControllers
-
-        Write-Verbose -Message 'Get a list of DHCP servers from ActiveDirectory'
-        $DhcpSearcher = [adsisearcher]"(&(objectClass=dhcpclass)(!(name=DhcpRoot)))"
-        $ConfigRoot = ([adsi]"LDAP://RootDSE").configurationNamingContext
-        $DhcpSearcher.SearchRoot = [adsi]"LDAP://CN=NetServices,CN=Services,$ConfigRoot"
-
-        $DhcpServers = $DhcpSearcher.FindAll() | ForEach-Object {
-
-            $_.Properties.name
-
-            $Params = @{
-                Activity = 'Active Directory: Enumerating DHCP Servers'
-                Status = "Now Processing: $($_.Properties.name)"
-            }
-
-            Write-Progress @Params
-
-        } # $DhcpServers
-
-        Write-Verbose -Message 'Get domain name'
-        $DomainName = $Domain.Name
-        $DomainName = $DomainName.ToUpper()
-
-        Write-Verbose -Message 'Start gathering subnets'
-        $Subnets = [System.DirectoryServices.ActiveDirectory.ActiveDirectorySite]::GetComputerSite().Subnets |
-        ForEach-Object {
-
-            [pscustomobject][ordered]@{
-                Subnet = [string]$_.Name
-                Site = [string]$_.Site
-                Location = [string]$_.Location
-            }
-
-            $Params = @{
-                Activity = 'Active Directory: Enumerating Subnets'
-                Status = "Now Processing: $([string]$_.Name)"
-            }
-
-            Write-Progress @Params
-
-        } # $Subnets
-
-        Write-Verbose -Message 'Start gathering computers'
-        $Computers = ([adsisearcher]"(objectClass=computer)").FindAll() | ForEach-Object {
-
-            [pscustomobject][ordered]@{
-                ComputerName = [string]$_.Properties.name
-                OperatingSystem = [string]$_.Properties.operatingsystem
-                DistinguishedName = [string]$_.Properties.distinguishedname
-                Description = [string]$_.Properties.description
-                ServicePrincipalName = $_.Properties.serviceprincipalname
-                MemberOf = $_.Properties.memberof
-            }
-
-            $Params = @{
-                Activity = 'Active Directory: Enumerating Computers'
-                Status = "Now Processing: $([string]$_.Properties.name)"
-            }
-
-            Write-Progress @Params
-
-        } # $Computers
-
-        Write-Verbose -Message 'Start gathering users'
-        $Users = ([adsisearcher]"(&(objectCategory=person)(objectClass=user))").FindAll() | ForEach-Object {
-
-            $SamAccountName = [string]$_.Properties.samaccountname
-            $objAct = New-Object System.Security.Principal.NTAccount("$SamAccountName")
-            $objSID = $objAct.Translate([System.Security.Principal.SecurityIdentifier])
-            $SID = [string]$objSID.Value
-
-            $MemberOf = $_.Properties.memberof | ForEach-Object {
-                $EachMember = $_
-                if ($EachMember -match 'LDAP://') {
-                    $EachMember = $EachMember.Replace('LDAP://','')
+                [pscustomobject][ordered]@{
+                    Name = $_.Name
+                    IpAddress = $_.IPAddress
+                    Roles = $_.Roles
                 }
-                $EachMember
-            }
 
-            [pscustomobject][ordered]@{
-                SamAccountName = $SamAccountName
-                UserPrincipalName = [string]$_.Properties.userprincipalname
-                SID = $SID
-                DistinguishedName = [string]$_.Properties.distinguishedname
-                Description = [string]$_.Properties.description
-                MemberOf = $MemberOf
-            }
-
-            $Params = @{
-                Activity = 'Active Directory: Enumerating Users'
-                Status = "Now Processing: $([string]$_.Properties.samaccountname)"
-            }
-
-            Write-Progress @Params
-
-        } # $Users
-
-        Write-Verbose -Message 'Start gathering groups'
-        $Groups = ([adsisearcher]"(objectCategory=group)").FindAll() | ForEach-Object {
-
-            $Member = $_.Properties.member | ForEach-Object {
-                $EachMember = $_
-                if ($EachMember -match 'LDAP://') {
-                    $EachMember = $EachMember.Replace('LDAP://','')
+                $Params = @{
+                    Activity = 'Active Directory: Enumerating Domain Controllers'
+                    Status = "Now Processing: $($_.name)"
                 }
-                $EachMember
-            }
 
-            $MemberOf = $_.Properties.memberof | ForEach-Object {
-                $EachMember = $_
-                if ($EachMember -match 'LDAP://') {
-                    $EachMember = $EachMember.Replace('LDAP://','')
+                Write-Progress @Params
+
+            } # $DomainControllers
+
+            Write-Verbose -Message 'Get a list of DHCP servers from ActiveDirectory'
+            $DhcpSearcher = [adsisearcher]"(&(objectClass=dhcpclass)(!(name=DhcpRoot)))"
+            $ConfigRoot = ([adsi]"LDAP://RootDSE").configurationNamingContext
+            $DhcpSearcher.SearchRoot = [adsi]"LDAP://CN=NetServices,CN=Services,$ConfigRoot"
+
+            $DhcpServers = $DhcpSearcher.FindAll() | ForEach-Object {
+
+                $_.Properties.name
+
+                $Params = @{
+                    Activity = 'Active Directory: Enumerating DHCP Servers'
+                    Status = "Now Processing: $($_.Properties.name)"
                 }
-                $EachMember
-            }
 
-            $GroupTypeRaw = $_.Properties.grouptype
+                Write-Progress @Params
 
-            $GroupType = switch -Exact ($GroupTypeRaw) {
-                2 {'Global Distribution Group'}
-                4 {'Domain Local Distribution Group'}
-                8 {'Universal Distribution Group'}
-                -2147483646 {'Global Security Group'}
-                -2147483644 {'Domain Local Security Group'}
-                -2147483643 {'Built-In Group'}
-                -2147483640 {'Universal Security Group'}
-            }
+            } # $DhcpServers
 
-            [pscustomobject][ordered]@{
-                SamAccountName = [string]$_.Properties.samaccountname
-                GroupType = $GroupType
-                Description = [string]$_.Properties.description
-                DistinguishedName = [string]$_.Properties.distinguishedname
-                Member = $Member
-                MemberOf = $MemberOf
-            }
+            Write-Verbose -Message 'Get domain name'
+            $DomainName = $Domain.Name
+            $DomainName = $DomainName.ToUpper()
 
-            $Params = @{
-                Activity = 'Active Directory: Enumerating Groups'
-                Status = "Now Processing: $([string]$_.Properties.samaccountname)"
-            }
+            Write-Verbose -Message 'Start gathering subnets'
+            $Subnets = [System.DirectoryServices.ActiveDirectory.ActiveDirectorySite]::GetComputerSite().Subnets |
+            ForEach-Object {
 
-            Write-Progress @Params
+                [pscustomobject][ordered]@{
+                    Subnet = [string]$_.Name
+                    Site = [string]$_.Site
+                    Location = [string]$_.Location
+                }
 
-        } # $Groups
+                $Params = @{
+                    Activity = 'Active Directory: Enumerating Subnets'
+                    Status = "Now Processing: $([string]$_.Name)"
+                }
 
-        Write-Verbose -Message 'Start gathering GPOs'
-        $GroupPolicies = ([adsisearcher]"(objectCategory=groupPolicyContainer)").FindAll() | ForEach-Object {
+                Write-Progress @Params
 
-            $GpFsPath = [string]$_.Properties.gpcfilesyspath
-            $GpGuid = [string](Split-Path -Path $GpFsPath -Leaf)
+            } # $Subnets
 
-            [pscustomobject][ordered]@{
-                Name = [string]$_.Properties.displayname
-                DistinguishedName = [string]$_.Properties.distinguishedname
-                Path = $GpFsPath
-                Guid = $GpGuid
-            }
+            Write-Verbose -Message 'Start gathering computers'
+            $Computers = ([adsisearcher]"(objectClass=computer)").FindAll() | ForEach-Object {
 
-            $Params = @{
-                Activity = 'Active Directory: Enumerating Group Policies'
-                Status = "Now Processing: $([string]$_.Properties.displayname)"
-            }
+                [pscustomobject][ordered]@{
+                    ComputerName = [string]$_.Properties.name
+                    OperatingSystem = [string]$_.Properties.operatingsystem
+                    DistinguishedName = [string]$_.Properties.distinguishedname
+                    Description = [string]$_.Properties.description
+                    ServicePrincipalName = $_.Properties.serviceprincipalname
+                    MemberOf = $_.Properties.memberof
+                }
 
-            Write-Progress @Params
+                $Params = @{
+                    Activity = 'Active Directory: Enumerating Computers'
+                    Status = "Now Processing: $([string]$_.Properties.name)"
+                }
 
-        } # $GroupPolicies
+                Write-Progress @Params
 
-        Write-Verbose -Message 'Create a hashtable to translate GPO GUIDs to names'
-        if ($PowVer -ge 5) {
+            } # $Computers
 
-            $GpHt = $GroupPolicies | Group-Object -Property Guid -AsHashTable
+            Write-Verbose -Message 'Start gathering users'
+            $Users = ([adsisearcher]"(&(objectCategory=person)(objectClass=user))").FindAll() | ForEach-Object {
 
-        } elseif ($PowVer -lt 5) {
+                $SamAccountName = [string]$_.Properties.samaccountname
+                $objAct = New-Object System.Security.Principal.NTAccount("$SamAccountName")
+                $objSID = $objAct.Translate([System.Security.Principal.SecurityIdentifier])
+                $SID = [string]$objSID.Value
 
-            $GpHt = $GroupPolicies |
-            Group-Object -Property Guid |
-            ForEach-Object { @{ $_.Name = $_.Group.Name } }
-
-        } # $PowVer
-
-        Write-Verbose -Message 'Start gathering OUs'
-        $OUs = ([adsisearcher]"(objectCategory=organizationalUnit)").FindAll() | ForEach-Object {
-
-            $GpLink = $_.Properties.gplink
-
-            Write-Verbose -Message 'Checking for linked GPOs'
-            if ($GpLink -imatch 'LDAP://cn=') {
-
-                Write-Verbose -Message 'Linked GPOs detected'
-
-                Write-Verbose -Message 'Parsing gplink [string] into [pscustomobject[]]'
-                $LinkedGPOs = $GpLink.Split('][') | Where-Object { $_ -imatch 'cn=' } | ForEach-Object {
-
-                    $Guid = $_.Split(';')[0].Trim('[').Split(',')[0] -ireplace 'LDAP://cn=',''
-                    $Name = $GpHt[$Guid].Name
-                    $EnforcedString = [string]$_.Split(';')[-1].Trim(']')
-                    $EnforcedInt = [int]$EnforcedString
-
-                    if ($EnforcedInt -eq 0) {
-
-                        $Enforced = $false
-
-                    } elseif ($EnforcedInt -eq 1) {
-
-                        $Enforced = $true
-
+                $MemberOf = $_.Properties.memberof | ForEach-Object {
+                    $EachMember = $_
+                    if ($EachMember -match 'LDAP://') {
+                        $EachMember = $EachMember.Replace('LDAP://','')
                     }
+                    $EachMember
+                }
 
-                    [pscustomobject][ordered]@{
-                        Name = $Name
-                        Guid = $Guid
-                        Enforced = $Enforced
+                [pscustomobject][ordered]@{
+                    SamAccountName = $SamAccountName
+                    UserPrincipalName = [string]$_.Properties.userprincipalname
+                    SID = $SID
+                    DistinguishedName = [string]$_.Properties.distinguishedname
+                    Description = [string]$_.Properties.description
+                    MemberOf = $MemberOf
+                }
+
+                $Params = @{
+                    Activity = 'Active Directory: Enumerating Users'
+                    Status = "Now Processing: $([string]$_.Properties.samaccountname)"
+                }
+
+                Write-Progress @Params
+
+            } # $Users
+
+            Write-Verbose -Message 'Start gathering groups'
+            $Groups = ([adsisearcher]"(objectCategory=group)").FindAll() | ForEach-Object {
+
+                $Member = $_.Properties.member | ForEach-Object {
+                    $EachMember = $_
+                    if ($EachMember -match 'LDAP://') {
+                        $EachMember = $EachMember.Replace('LDAP://','')
                     }
+                    $EachMember
+                }
 
-                } # $LinkedGPOs
+                $MemberOf = $_.Properties.memberof | ForEach-Object {
+                    $EachMember = $_
+                    if ($EachMember -match 'LDAP://') {
+                        $EachMember = $EachMember.Replace('LDAP://','')
+                    }
+                    $EachMember
+                }
 
-            } elseif (-not $GpLink) {
+                $GroupTypeRaw = $_.Properties.grouptype
 
-                $LinkedGPOs = $null
+                $GroupType = switch -Exact ($GroupTypeRaw) {
+                    2 {'Global Distribution Group'}
+                    4 {'Domain Local Distribution Group'}
+                    8 {'Universal Distribution Group'}
+                    -2147483646 {'Global Security Group'}
+                    -2147483644 {'Domain Local Security Group'}
+                    -2147483643 {'Built-In Group'}
+                    -2147483640 {'Universal Security Group'}
+                }
 
-            } # if ($GpLink -match 'LDAP://cn=')
+                [pscustomobject][ordered]@{
+                    SamAccountName = [string]$_.Properties.samaccountname
+                    GroupType = $GroupType
+                    Description = [string]$_.Properties.description
+                    DistinguishedName = [string]$_.Properties.distinguishedname
+                    Member = $Member
+                    MemberOf = $MemberOf
+                }
 
-            $BlockedInheritanceString = [string]$_.Properties.gpoptions
-            $BlockedInheritanceInt = [int]$BlockedInheritanceString
+                $Params = @{
+                    Activity = 'Active Directory: Enumerating Groups'
+                    Status = "Now Processing: $([string]$_.Properties.samaccountname)"
+                }
 
-            if ($BlockedInheritanceInt -eq 0) {
+                Write-Progress @Params
 
-                $BlockedInheritance = $false
+            } # $Groups
 
-            } elseif ($BlockedInheritanceInt -eq 1) {
+            Write-Verbose -Message 'Start gathering GPOs'
+            $GroupPolicies = ([adsisearcher]"(objectCategory=groupPolicyContainer)").FindAll() | ForEach-Object {
 
-                $BlockedInheritance = $true
+                $GpFsPath = [string]$_.Properties.gpcfilesyspath
+                $GpGuid = [string](Split-Path -Path $GpFsPath -Leaf)
 
+                [pscustomobject][ordered]@{
+                    Name = [string]$_.Properties.displayname
+                    DistinguishedName = [string]$_.Properties.distinguishedname
+                    Path = $GpFsPath
+                    Guid = $GpGuid
+                }
+
+                $Params = @{
+                    Activity = 'Active Directory: Enumerating Group Policies'
+                    Status = "Now Processing: $([string]$_.Properties.displayname)"
+                }
+
+                Write-Progress @Params
+
+            } # $GroupPolicies
+
+            Write-Verbose -Message 'Create a hashtable to translate GPO GUIDs to names'
+            if ($PowVer -ge 5) {
+
+                $GpHt = $GroupPolicies | Group-Object -Property Guid -AsHashTable
+
+            } elseif ($PowVer -lt 5) {
+
+                $GpHt = $GroupPolicies |
+                Group-Object -Property Guid |
+                ForEach-Object { @{ $_.Name = $_.Group.Name } }
+
+            } # $PowVer
+
+            Write-Verbose -Message 'Start gathering OUs'
+            $OUs = ([adsisearcher]"(objectCategory=organizationalUnit)").FindAll() | ForEach-Object {
+
+                $GpLink = $_.Properties.gplink
+
+                Write-Verbose -Message 'Checking for linked GPOs'
+                if ($GpLink -imatch 'LDAP://cn=') {
+
+                    Write-Verbose -Message 'Linked GPOs detected'
+
+                    Write-Verbose -Message 'Parsing gplink [string] into [pscustomobject[]]'
+                    $LinkedGPOs = $GpLink.Split('][') | Where-Object { $_ -imatch 'cn=' } | ForEach-Object {
+
+                        $Guid = $_.Split(';')[0].Trim('[').Split(',')[0] -ireplace 'LDAP://cn=',''
+                        $Name = $GpHt[$Guid].Name
+                        $EnforcedString = [string]$_.Split(';')[-1].Trim(']')
+                        $EnforcedInt = [int]$EnforcedString
+
+                        if ($EnforcedInt -eq 0) {
+
+                            $Enforced = $false
+
+                        } elseif ($EnforcedInt -eq 1) {
+
+                            $Enforced = $true
+
+                        }
+
+                        [pscustomobject][ordered]@{
+                            Name = $Name
+                            Guid = $Guid
+                            Enforced = $Enforced
+                        }
+
+                    } # $LinkedGPOs
+
+                } elseif (-not $GpLink) {
+
+                    $LinkedGPOs = $null
+
+                } # if ($GpLink -match 'LDAP://cn=')
+
+                $BlockedInheritanceString = [string]$_.Properties.gpoptions
+                $BlockedInheritanceInt = [int]$BlockedInheritanceString
+
+                if ($BlockedInheritanceInt -eq 0) {
+
+                    $BlockedInheritance = $false
+
+                } elseif ($BlockedInheritanceInt -eq 1) {
+
+                    $BlockedInheritance = $true
+
+                }
+
+                [pscustomobject][ordered]@{
+                    Name = [string]$_.Properties.name
+                    DistinguishedName = [string]$_.Properties.distinguishedname
+                    Description = [string]$_.Properties.description
+                    LinkedGPOs = $LinkedGPOs
+                    BlockedInheritance = $BlockedInheritance
+                }
+
+                $Params = @{
+                    Activity = 'Active Directory: Enumerating OUs'
+                    Status = "Now Processing: $([string]$_.Properties.name)"
+                }
+
+                Write-Progress @Params
+
+            } # $OUs
+
+            $AdInfo = [pscustomobject][ordered]@{
+                Domain = $DomainName
+                DomainControllers = $DomainControllers
+                DhcpServers = $DhcpServers
+                Subnets = $Subnets
+                Computers = $Computers
+                Users = $Users
+                Groups = $Groups
+                GroupPolicies = $GroupPolicies
+                OUs = $OUs
             }
 
-            [pscustomobject][ordered]@{
-                Name = [string]$_.Properties.name
-                DistinguishedName = [string]$_.Properties.distinguishedname
-                Description = [string]$_.Properties.description
-                LinkedGPOs = $LinkedGPOs
-                BlockedInheritance = $BlockedInheritance
-            }
+            $AdInfo | Export-Clixml -Path .\ActiveDirectory.xml
 
-            $Params = @{
-                Activity = 'Active Directory: Enumerating OUs'
-                Status = "Now Processing: $([string]$_.Properties.name)"
-            }
+            Write-Verbose -Message 'Gather logs from DCs'
+            $DCs = $AdInfo.DomainControllers.Name
 
-            Write-Progress @Params
+            if ($DCs) {
 
-        } # $OUs
+                $DirName = 'EventLogs'
+                New-Item -Path .\$DirName -ItemType Directory | Out-Null
 
-        $AdInfo = [pscustomobject][ordered]@{
-            Domain = $DomainName
-            DomainControllers = $DomainControllers
-            DhcpServers = $DhcpServers
-            Subnets = $Subnets
-            Computers = $Computers
-            Users = $Users
-            Groups = $Groups
-            GroupPolicies = $GroupPolicies
-            OUs = $OUs
-        }
+                $DcLogs = New-Object -TypeName System.Collections.ArrayList
 
-        $AdInfo | Export-Clixml -Path .\ActiveDirectory.xml
+                $DCs | ForEach-Object {
 
-        Write-Verbose -Message 'Gather logs from DCs'
-        $DCs = $AdInfo.DomainControllers.Name
+                    $EachDc = $_
 
-        if ($DCs) {
+                    $ErrorActionPreferenceBak = $ErrorActionPreference
+                    $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
+        
+                    try {
+        
+                        $DcEvents = Get-WinEvent -ComputerName $EachDc -FilterXml $LogonLogoff7Days
 
-            $DirName = 'EventLogs'
-            New-Item -Path .\$DirName -ItemType Directory | Out-Null
+                        foreach ($DcEvent in $DcEvents) {
 
-            $DcLogs = New-Object -TypeName System.Collections.ArrayList
+                            [void]$DcLogs.Add($DcEvent)
 
-            $DCs | ForEach-Object {
+                        } #foreach
 
-                $EachDc = $_
+                        Remove-Variable -Name DcEvents
 
-                $ErrorActionPreferenceBak = $ErrorActionPreference
-                $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
-    
-                try {
-    
-                    $DcEvents = Get-WinEvent -ComputerName $EachDc -FilterXml $LogonLogoff7Days
-
-                    foreach ($DcEvent in $DcEvents) {
-
-                        [void]$DcLogs.Add($DcEvent)
-
-                    } #foreach
-
-                    Remove-Variable -Name DcEvents
-
-                    $Params = @{
-                        Activity = 'Active Directory: Gathering Event Logs'
-                        Status = "Now Processing: Logs from $EachDc"
+                        $Params = @{
+                            Activity = 'Active Directory: Gathering Event Logs'
+                            Status = "Now Processing: Logs from $EachDc"
+                        }
+            
+                        Write-Progress @Params
+        
+                    } catch {
+        
+                        Write-Verbose -Message "Error gathering logs from $EachDc"
+        
                     }
         
-                    Write-Progress @Params
-    
-                } catch {
-    
-                    Write-Verbose -Message "Error gathering logs from $EachDc"
-    
+                    $ErrorActionPreference = $ErrorActionPreferenceBak
+        
+                } # DC Logs
+
+                if ($DcLogs) {
+
+                    $DcLogs = $DcLogs | Sort-Object -Property TimeCreated
+
+                    $DcLogs | Export-Clixml -Path .\$DirName\DcLogs.xml
+
+                } #if ($DcLogs)
+
+            } #if ($DCs)
+            ### endregion AD ###
+
+            ### region GPO ###
+            $DirName = 'GPO'
+            New-Item -Path .\$DirName -ItemType Directory | Out-Null
+
+            $GroupPolicies | Get-Item | ForEach-Object {
+
+                $_ | Copy-Item -Recurse -Destination .\$DirName\ -ErrorAction SilentlyContinue
+
+                $Params = @{
+                    Activity = 'Active Directory: Copying GPOs'
+                    Status = "Now Processing: $($GpHt[$($_.Name)].Name)"
                 }
-    
-                $ErrorActionPreference = $ErrorActionPreferenceBak
-    
-            } # DC Logs
 
-            if ($DcLogs) {
+                Write-Progress @Params
 
-                $DcLogs = $DcLogs | Sort-Object -Property TimeCreated
+            } # $GroupPolicies
+            ### endregion GPO ###
 
-                $DcLogs | Export-Clixml -Path .\$DirName\DcLogs.xml
-
-            } #if ($DcLogs)
-
-        } #if ($DCs)
-        ### endregion AD ###
-
-        ### region GPO ###
-        $DirName = 'GPO'
-        New-Item -Path .\$DirName -ItemType Directory | Out-Null
-
-        $GroupPolicies | Get-Item | ForEach-Object {
-
-            $_ | Copy-Item -Recurse -Destination .\$DirName\ -ErrorAction SilentlyContinue
-
-            $Params = @{
-                Activity = 'Active Directory: Copying GPOs'
-                Status = "Now Processing: $($GpHt[$($_.Name)].Name)"
-            }
-
-            Write-Progress @Params
-
-        } # $GroupPolicies
-        ### endregion GPO ###
+        } #if ($DomainJoined)
 
         ### region PDQ ###
-        Remove-Variable -Name DirName
         $DirName = 'PDQ'
 
         $PdqDb = "$env:ProgramData\Admin Arsenal\PDQ Inventory\Database.db"
@@ -518,7 +521,6 @@ function ArtifactCollector {
         ### endregion PDQ ###
 
         ### region Sophos ###
-        Remove-Variable -Name DirName
         $DirName = 'Sophos'
 
         $Sophos = New-Object -TypeName System.Collections.ArrayList
@@ -564,7 +566,6 @@ function ArtifactCollector {
         ### endregion Sophos ###
 
         ### region Symantec ###
-        Remove-Variable -Name DirName
         $DirName = 'Symantec'
 
         $Symantec = New-Object -TypeName System.Collections.ArrayList
@@ -593,7 +594,6 @@ function ArtifactCollector {
         ### region Symantec ###
 
         ### region McAfee ###
-        Remove-Variable -Name DirName
         $DirName = 'McAfee'
 
         $Params = @{
@@ -620,7 +620,6 @@ function ArtifactCollector {
         ### endregion McAfee ###
 
         ### region WiFi ###
-        Remove-Variable -Name DirName
         $DirName = 'WiFi'
 
         Write-Verbose -Message 'Using netsh to enumerate WiFi profiles'
