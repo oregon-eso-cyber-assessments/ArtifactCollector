@@ -74,7 +74,6 @@ function ArtifactCollector {
         Write-Verbose -Message 'Determine the PowerShell Version'
         $PowVer = $PSVersionTable.PSVersion.Major
 
-        <# DC log collection commented out (needs refactoring)
         $LogonLogoff7Days = [xml]@'
 <QueryList>
   <Query Id="0" Path="Security">
@@ -96,7 +95,6 @@ function ArtifactCollector {
   </Query>
 </QueryList>
 '@
-        #>
     } #begin
 
     process {
@@ -404,7 +402,6 @@ function ArtifactCollector {
 
             $AdInfo | Export-Clixml -Path .\ActiveDirectory.xml
 
-            <# DC log collection commented out (needs refactoring)
             Write-Verbose -Message 'Gather logs from DCs'
             $DCs = $AdInfo.DomainControllers.Name
 
@@ -424,7 +421,21 @@ function ArtifactCollector {
 
                     try {
 
-                        $DcEvents = Get-WinEvent -ComputerName $EachDc -FilterXml $LogonLogoff7Days
+                        $Params = @{
+                            Activity = 'Active Directory: Gathering Event Logs'
+                            Status = "Now Processing: Logs from $EachDc"
+                        }
+
+                        Write-Progress @Params
+
+                        $Params = @{
+                            ComputerName = $EachDc
+                            FilterXml = $LogonLogoff7Days
+                            Oldest = $true
+                            MaxEvents = 100
+                        }
+
+                        $DcEvents = Get-WinEvent @Params
 
                         foreach ($DcEvent in $DcEvents) {
 
@@ -433,13 +444,6 @@ function ArtifactCollector {
                         } #foreach
 
                         Remove-Variable -Name DcEvents
-
-                        $Params = @{
-                            Activity = 'Active Directory: Gathering Event Logs'
-                            Status = "Now Processing: Logs from $EachDc"
-                        }
-
-                        Write-Progress @Params
 
                     } catch {
 
@@ -460,7 +464,6 @@ function ArtifactCollector {
                 } #if ($DcLogs)
 
             } #if ($DCs)
-            #>
             ### endregion AD ###
 
             ### region GPO ###
