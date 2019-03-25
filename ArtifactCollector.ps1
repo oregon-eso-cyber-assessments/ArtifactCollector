@@ -74,7 +74,7 @@ function ArtifactCollector {
         Write-Verbose -Message 'Determine the PowerShell Version'
         $PowVer = $PSVersionTable.PSVersion.Major
 
-        $LogonLogoff7Days = [xml]@'
+        $LogonLogoffOldest100 = [xml]@'
 <QueryList>
   <Query Id="0" Path="Security">
     <Select Path="Security">
@@ -84,8 +84,6 @@ function ArtifactCollector {
         (Level=4 or Level=0)
         and
         (EventID=4624 or EventID=4625)
-        and
-        TimeCreated[timediff(@SystemTime) &lt;= 604800000]
       ]]
       and
       *[EventData[
@@ -430,7 +428,7 @@ function ArtifactCollector {
 
                         $Params = @{
                             ComputerName = $EachDc
-                            FilterXml = $LogonLogoff7Days
+                            FilterXml = $LogonLogoffOldest100
                             Oldest = $true
                             MaxEvents = 100
                         }
