@@ -650,7 +650,9 @@ function ArtifactCollector {
             Write-Verbose -Message 'Exporting the WiFi profiles to XML files'
             $WiFiProfiles | ForEach-Object {
 
+                Write-Progress -Activity 'Gathering WiFi Profiles' -Status "Now Processing: $_"
                 netsh wlan export profile name="$_" folder=".\$DirName" key=clear
+                Clear-Host
 
             } # $WiFiProfiles
 
