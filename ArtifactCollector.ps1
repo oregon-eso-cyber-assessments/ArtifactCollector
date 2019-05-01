@@ -74,20 +74,27 @@ function ArtifactCollector {
         Write-Verbose -Message 'Determine the PowerShell Version'
         $PowVer = $PSVersionTable.PSVersion.Major
 
-        $LogonLogoffOldest100 = [xml]@'
+        $EventFilterXml = [xml]@'
 <QueryList>
-  <Query Id="0" Path="Security">
-    <Select Path="Security">
+  <Query Id='0' Path='Security'>
+    <Select Path='Security'>
       *[System[
         Provider[@Name='Microsoft-Windows-Security-Auditing']
         and
         (Level=4 or Level=0)
         and
-        (EventID=4624 or EventID=4625)
-      ]]
-      and
-      *[EventData[
-        Data[@Name='TargetUserName'] != 'ANONYMOUS LOGON'
+        (
+          EventID=4720 or
+          EventID=4722 or
+          (EventID &gt;= 4724 and EventID &lt;= 4729) or
+          EventID=4732 or
+          EventID=4733 or
+          EventID=4740 or
+          EventID=4741 or
+          EventID=4743 or
+          EventID=4756 or
+          EventID=4757
+        )
       ]]
     </Select>
   </Query>
@@ -428,9 +435,9 @@ function ArtifactCollector {
 
                         $Params = @{
                             ComputerName = $EachDc
-                            FilterXml = $LogonLogoffOldest100
+                            FilterXml = $EventFilterXml
                             Oldest = $true
-                            MaxEvents = 100
+                            MaxEvents = 1000
                         }
 
                         $DcEvents = Get-WinEvent @Params
