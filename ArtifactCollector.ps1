@@ -655,6 +655,30 @@ function ArtifactCollector {
         } #if ($WiFiProfiles)
         ### endregion WiFi ###
 
+        ### region NTP ###
+        $DirName = 'NTP'
+
+        Write-Verbose -Message 'Gathering Time Settings'
+        $W32tmRegistry = Get-ItemProperty -Path HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Parameters |
+            Select-Object -Property Type,ServiceDll,NtpServer
+
+        $W32tmService = Get-Service -Name W32Time | Select-Object -Property Name,Status,StartType
+
+        $TimeConfig = [pscustomobject][ordered]@{
+            Type = $W32tmRegistry.Type
+            ServiceDll = $W32tmRegistry.ServiceDll
+            NtpServer = $W32tmRegistry.NtpServer
+            ServiceName = $W32tmService.Name
+            ServiceStatus = $W32tmService.Status
+            ServiceStartType = $W32tmService.StartType
+        }
+
+        Write-Verbose -Message 'Exporting Time Settings'
+        New-Item -Path .\$DirName -ItemType Directory | Out-Null
+
+        $TimeConfig | Export-Csv -Path .\$DirName\NtpConfig.csv -NoTypeInformation
+        ### endregion NTP ###
+
         ### region ZIP ###
         if ($PowVer -ge 5) {
 
