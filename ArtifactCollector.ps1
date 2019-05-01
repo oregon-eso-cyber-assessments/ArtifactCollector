@@ -657,28 +657,77 @@ function ArtifactCollector {
         } #if ($WiFiProfiles)
         ### endregion WiFi ###
 
+        ### region Hyper-V ###
+        $DirName = 'Hyper-V'
+
+        Write-Verbose -Message 'Searching for Hyper-V Hosts'
+        $HypervHosts = $AdInfo.Computers |
+            Where-Object {
+                'Microsoft Virtual Console Service' -in
+                (
+                    $_ | Select-Object -ExpandProperty ServicePrincipalName | ForEach-Object {
+                        $_.Split('/')[0]
+                    }
+                )
+            } | ForEach-Object { $_.ComputerName }
+
+        if ($HypervHosts) {
+
+            Write-Verbose -Message 'Hyper-V hosts found'
+            New-Item -Path .\$DirName -ItemType Directory | Out-Null
+
+            Write-Verbose -Message 'Exporting the Hyper-V Hosts'
+            $HypervHosts | ForEach-Object {
+
+                $HypervHosts | Out-File .\$DirName\Hyper-V_Hosts.txt
+
+            } # $HypervHosts
+
+        } #if ($HypervHosts)
+        ### endregion Hyper-V ###
+
         ### region NTP ###
         $DirName = 'NTP'
+
+        Write-Verbose -Message 'Building List of NTP Servers to Check'
+        $NtpServersToCheck = New-Object -TypeName System.Collections.ArrayList
+        $HypervHosts | ForEach-Object { [void]$NtpServersToCheck.Add($_) }
+        $AdInfo.DomainControllers.Name | ForEach-Object { [void]$NtpServersToCheck.Add($_) }
 
         Write-Verbose -Message 'Gathering Time Settings'
         $W32tmRegistry = Get-ItemProperty -Path HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Parameters |
             Select-Object -Property Type,ServiceDll,NtpServer
-
         $W32tmService = Get-Service -Name W32Time | Select-Object -Property Name,Status,StartType
 
+        $NtpServersChecked = $NtpServersToCheck | ForEach-Object {
+
+            [pscustomobject][ordered]@{
+                ComputerName = $_
+                W32tmMonitorOutput = (w32tm /monitor /computers:$_ /nowarn)
+                W32tmQueryConfigOutput = (w32tm /query /computer:$_ /configuration)
+                W32tmQueryPeersOutput = (w32tm /query /computer:$_ /peers)
+            }
+
+        } #$NtpServersChecked
+
         $TimeConfig = [pscustomobject][ordered]@{
-            Type = $W32tmRegistry.Type
-            ServiceDll = $W32tmRegistry.ServiceDll
-            NtpServer = $W32tmRegistry.NtpServer
+            ComputerName = $env:COMPUTERNAME
+            RegType = $W32tmRegistry.Type
+            RegServiceDll = $W32tmRegistry.ServiceDll
+            RegNtpServer = $W32tmRegistry.NtpServer
             ServiceName = $W32tmService.Name
             ServiceStatus = $W32tmService.Status
             ServiceStartType = $W32tmService.StartType
+            W32tmMonitorOutput = (w32tm /monitor /nowarn)
+            W32tmQueryConfigOutput = (w32tm /query /configuration)
+            W32tmQueryPeersOutput = (w32tm /query /peers)
+            NtpServersChecked = $NtpServersChecked
         }
 
         Write-Verbose -Message 'Exporting Time Settings'
         New-Item -Path .\$DirName -ItemType Directory | Out-Null
 
-        $TimeConfig | Export-Csv -Path .\$DirName\NtpConfig.csv -NoTypeInformation
+        $TimeConfig | Export-Clixml -Path .\$DirName\NtpConfig.xml
         ### endregion NTP ###
 
         ### region ZIP ###
