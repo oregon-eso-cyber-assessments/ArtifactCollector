@@ -671,19 +671,19 @@ function ArtifactCollector {
                         $_.Split('/')[0]
                     }
                 )
-            } | ForEach-Object { $_.ComputerName }
+            } | ForEach-Object {
 
+                $CompName = $_.ComputerName
+                Write-Progress -Activity 'Gathering Hyper-V Hosts' -Status "Now Processing: $CompName"
+
+            }
         if ($HypervHosts) {
 
             Write-Verbose -Message 'Hyper-V hosts found'
             New-Item -Path .\$DirName -ItemType Directory | Out-Null
 
             Write-Verbose -Message 'Exporting the Hyper-V Hosts'
-            $HypervHosts | ForEach-Object {
-
-                $HypervHosts | Out-File .\$DirName\Hyper-V_Hosts.txt
-
-            } # $HypervHosts
+            $HypervHosts | Out-File .\$DirName\Hyper-V_Hosts.txt
 
         } #if ($HypervHosts)
         ### endregion Hyper-V ###
@@ -691,23 +691,22 @@ function ArtifactCollector {
         ### region NTP ###
         $DirName = 'NTP'
 
-        Write-Verbose -Message 'Building List of NTP Servers to Check'
+        Write-Verbose -Message 'Gathering Time Servers to Check'
         $NtpServersToCheck = New-Object -TypeName System.Collections.ArrayList
         $HypervHosts | ForEach-Object { [void]$NtpServersToCheck.Add($_) }
         $AdInfo.DomainControllers.Name | ForEach-Object { [void]$NtpServersToCheck.Add($_) }
 
-        Write-Verbose -Message 'Gathering Time Settings'
+        Write-Verbose -Message 'Gathering Time Configuration From the Registry'
         $W32tmRegistry = Get-ItemProperty -Path HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Parameters |
             Select-Object -Property Type,ServiceDll,NtpServer
         $W32tmService = Get-Service -Name W32Time | Select-Object -Property Name,Status,StartType
 
         $NtpServersChecked = $NtpServersToCheck | ForEach-Object {
 
+            Write-Progress -Activity 'Gathering Time Settings' -Status "Now Processing: $_"
             [pscustomobject][ordered]@{
                 ComputerName = $_
                 W32tmMonitorOutput = (w32tm /monitor /computers:$_ /nowarn)
-                W32tmQueryConfigOutput = (w32tm /query /computer:$_ /configuration)
-                W32tmQueryPeersOutput = (w32tm /query /computer:$_ /peers)
             }
 
         } #$NtpServersChecked
