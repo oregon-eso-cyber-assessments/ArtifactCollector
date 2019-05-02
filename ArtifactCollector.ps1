@@ -415,7 +415,6 @@ function ArtifactCollector {
             if ($DCs) {
 
                 $DirName = 'EventLogs'
-                New-Item -Path .\$DirName -ItemType Directory | Out-Null
 
                 $DcLogs = New-Object -TypeName System.Collections.ArrayList
 
@@ -463,6 +462,8 @@ function ArtifactCollector {
                 } # DC Logs
 
                 if ($DcLogs) {
+
+                    New-Item -Path .\$DirName -ItemType Directory | Out-Null
 
                     $DcLogs = $DcLogs | Sort-Object -Property TimeCreated
 
@@ -722,6 +723,7 @@ function ArtifactCollector {
             W32tmMonitorOutput = (w32tm /monitor /nowarn)
             W32tmQueryConfigOutput = (w32tm /query /configuration)
             W32tmQueryPeersOutput = (w32tm /query /peers)
+            W32tmQuerySourceOutput = (w32tm /query /source)
             NtpServersChecked = $NtpServersChecked
         }
 
