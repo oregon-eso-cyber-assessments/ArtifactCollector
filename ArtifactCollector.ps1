@@ -704,13 +704,22 @@ function ArtifactCollector {
 
         $NtpServersChecked = $NtpServersToCheck | ForEach-Object {
 
+            $W32tmMonitorOutput = (w32tm /monitor /computers:$_ /nowarn) |
+                Select-String -Pattern ':' |
+                ForEach-Object { $_.ToString() }
+
             Write-Progress -Activity 'Gathering Time Settings' -Status "Now Processing: $_"
             [pscustomobject][ordered]@{
                 ComputerName = $_
-                W32tmMonitorOutput = (w32tm /monitor /computers:$_ /nowarn)
+                W32tmMonitorOutput = $W32tmMonitorOutput
             }
 
         } #$NtpServersChecked
+
+        $W32tmMonitorOutput = (w32tm /monitor /nowarn) |
+            Select-String -Pattern ':' |
+            Select-Object -Skip 1 |
+            ForEach-Object { $_.ToString() }
 
         $TimeConfig = [pscustomobject][ordered]@{
             ComputerName = $env:COMPUTERNAME
