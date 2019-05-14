@@ -11,6 +11,7 @@ function ArtifactCollector {
             - Endpoint Security logs
             - Wi-Fi Profiles
             - Time Settings
+            - Windows Event Collector (WEC) Configuration
     .EXAMPLE
         ArtifactCollector
         Collects all artifacts and zips them into an archive for transport.
@@ -62,6 +63,7 @@ function ArtifactCollector {
             - Endpoint Security logs
             - Wi-Fi Profiles
             - Time Settings
+            - Windows Event Collector (WEC) Configuration
     #>
 
     [CmdletBinding()]
@@ -741,6 +743,38 @@ function ArtifactCollector {
 
         $TimeConfig | Export-Clixml -Path .\$DirName\NtpConfig.xml
         ### endregion NTP ###
+
+        ### region WEC ###
+        $DirName = 'WEC'
+
+        Write-Verbose -Message 'Gathering WEC Configuration From the Registry'
+        $SubManPath = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\EventLog\EventForwarding\SubscriptionManager'
+        $HasWecPolicy = Test-Path -Path $SubManPath
+
+        if ($HasWecPolicy) {
+
+            New-Item -Path .\$DirName -ItemType Directory | Out-Null
+            $SubscriptionManager = Get-Item -Path $SubManPath
+            $WecServers = $SubscriptionManager.GetValueNames()
+
+            $WecServers | ForEach-Object {
+
+                $ServerString = $SubscriptionManager.GetValue($_)
+                $ServerString | ConvertFrom-Csv -Header Server,Refresh,IssuerCA
+
+            } | ForEach-Object {
+
+                $_.Server = $_.Server -split '=' | Select-Object -Last 1
+                $_.Refresh = $_.Refresh -split '=' | Select-Object -Last 1
+                $_.IssuerCA = $_.IssuerCA -split '=' | Select-Object -Last 1
+
+                Write-Progress -Activity 'Gathering WEC Settings' -Status "Now Processing: $($_.Server)"
+                $_
+
+            } | Export-Clixml -Path .\$DirName\WecConfig.xml
+
+        } #if
+        ### endregion WEC ###
 
         ### region ZIP ###
         if ($PowVer -ge 5) {
