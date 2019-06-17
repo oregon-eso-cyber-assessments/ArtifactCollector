@@ -8,6 +8,7 @@ function ArtifactCollector {
             - Active Directory: Domain Controllers, DHCP Servers, Subnets,
               Computers, Users, Groups, Group Policies, OUs, and Event Logs
             - PDQ Inventory database
+            - Spiceworks Inventory database
             - Endpoint Security logs
             - Wi-Fi Profiles
             - Time Settings
@@ -60,6 +61,7 @@ function ArtifactCollector {
             - Active Directory: Domain Controllers, DHCP Servers, Subnets,
               Computers, Users, Groups, Group Policies, OUs, and Event Logs
             - PDQ Inventory database
+            - Spiceworks Inventory database
             - Endpoint Security logs
             - Wi-Fi Profiles
             - Time Settings
@@ -535,6 +537,35 @@ function ArtifactCollector {
 
         } #if ($PdqPath)
         ### endregion PDQ ###
+
+        ### region Spiceworks ###
+        $DirName = 'Spiceworks'
+
+        $SpiceworksDb = "${env:ProgramFiles(x86)}\Spiceworks\db\spiceworks_prod.db"
+        $SpiceworksPath = Resolve-Path -Path $SpiceworksDb -ErrorAction SilentlyContinue
+
+        if ($SpiceworksPath) {
+
+            New-Item -Path .\$DirName -ItemType Directory | Out-Null
+
+            $ErrorActionPreferenceBak = $ErrorActionPreference
+            $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
+
+            try {
+
+                Write-Verbose -Message 'Copying Spiceworks Inventory database'
+                $SpiceworksPath | Get-Item | Copy-Item -Destination .\$DirName\
+
+            } catch {
+
+                Write-Verbose -Message 'Failed to copy Spiceworks Inventory database'
+
+            }
+
+            $ErrorActionPreference = $ErrorActionPreferenceBak
+
+        } #if ($SpiceworksPath)
+        ### endregion Spiceworks ###
 
         ### region Sophos ###
         $DirName = 'Sophos'
