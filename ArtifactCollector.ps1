@@ -75,7 +75,7 @@ function ArtifactCollector {
     begin {
 
         Write-Verbose -Message 'Start a stopwatch so we know how long the script takes to run'
-        $GlobalStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+        $StartTime = Get-Date
 
         Write-Verbose -Message 'Determine the PowerShell Version'
         $PowVer = $PSVersionTable.PSVersion.Major
@@ -111,8 +111,9 @@ function ArtifactCollector {
     process {
 
         ### region Prep ###
-        Write-Verbose -Message 'Set dotnet to use TLS 1.2'
-        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+
+        #Write-Verbose -Message 'Set dotnet to use TLS 1.2'
+        #[System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 
         Write-Verbose -Message 'Generate a unique name for ArtifactCollector output'
         $ArtifactDir = "$env:USERPROFILE\Downloads\Artifacts_$(Get-Date -Format yyyyMMdd_HHmm)"
@@ -122,25 +123,26 @@ function ArtifactCollector {
         New-Item -Path $ArtifactDir -ItemType Directory -Force | Out-Null
         Push-Location -Path $ArtifactDir
 
-        $DomainJoined = (Get-CimInstance -ClassName CIM_ComputerSystem).PartOfDomain
+        $ComputerSystem = Get-CimInstance -ClassName CIM_ComputerSystem
+        $DomainJoined = $ComputerSystem.PartOfDomain
         ### endregion Prep ###
 
         if ($DomainJoined) {
 
             ### region AD ###
-            Write-Verbose -Message 'Get a list of domain controllers'
-            $Domain = [System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()
-            $DomainControllers = $Domain.FindAllDomainControllers() | ForEach-Object {
 
-                [pscustomobject][ordered]@{
-                    Name = $_.Name
-                    IpAddress = $_.IPAddress
-                    Roles = $_.Roles
-                }
+            $ConfigRoot = ([adsi]"LDAP://RootDSE").configurationNamingContext
+
+            Write-Verbose -Message 'Get a list of domain controllers'
+            $DcSearcher = New-Object -TypeName System.DirectoryServices.DirectorySearcher
+            $DcSearcher.Filter = "(primaryGroupID=516)"
+            $DomainControllers = $DcSearcher.FindAll() | ForEach-Object {
+
+                [string]$_.Properties.dnshostname
 
                 $Params = @{
                     Activity = 'Active Directory: Enumerating Domain Controllers'
-                    Status = "Now Processing: $($_.name)"
+                    Status = "Now Processing: $($_.Properties.name)"
                 }
 
                 Write-Progress @Params
@@ -148,13 +150,13 @@ function ArtifactCollector {
             } # $DomainControllers
 
             Write-Verbose -Message 'Get a list of DHCP servers from ActiveDirectory'
-            $DhcpSearcher = [adsisearcher]"(&(objectClass=dhcpclass)(!(name=DhcpRoot)))"
-            $ConfigRoot = ([adsi]"LDAP://RootDSE").configurationNamingContext
+            $DhcpSearcher = New-Object -TypeName System.DirectoryServices.DirectorySearcher
+            $DhcpSearcher.Filter = "(&(objectClass=dhcpclass)(!(name=DhcpRoot)))"
             $DhcpSearcher.SearchRoot = [adsi]"LDAP://CN=NetServices,CN=Services,$ConfigRoot"
 
             $DhcpServers = $DhcpSearcher.FindAll() | ForEach-Object {
 
-                $_.Properties.name
+                [string]$_.Properties.name
 
                 $Params = @{
                     Activity = 'Active Directory: Enumerating DHCP Servers'
@@ -166,22 +168,24 @@ function ArtifactCollector {
             } # $DhcpServers
 
             Write-Verbose -Message 'Get domain name'
-            $DomainName = $Domain.Name
+            $DomainName = $ComputerSystem.Domain
             $DomainName = $DomainName.ToUpper()
 
             Write-Verbose -Message 'Start gathering subnets'
-            $Subnets = [System.DirectoryServices.ActiveDirectory.ActiveDirectorySite]::GetComputerSite().Subnets |
-            ForEach-Object {
+            $SubnetSearcher = New-Object -TypeName System.DirectoryServices.DirectorySearcher
+            $SubnetSearcher.Filter = "(objectCategory=subnet)"
+            $SubnetSearcher.SearchRoot = [adsi]"LDAP://CN=Subnets,CN=Sites,$ConfigRoot"
+            $Subnets = $SubnetSearcher.FindAll() | ForEach-Object {
 
-                [pscustomobject][ordered]@{
-                    Subnet = [string]$_.Name
-                    Site = [string]$_.Site
-                    Location = [string]$_.Location
+                New-Object -TypeName psobject -Property @{
+                    Subnet = [string]$_.Properties.name
+                    Site = ([string]$_.Properties.siteobject).Split(',')[0] -replace 'CN='
+                    Description = [string]$_.Properties.description
                 }
 
                 $Params = @{
                     Activity = 'Active Directory: Enumerating Subnets'
-                    Status = "Now Processing: $([string]$_.Name)"
+                    Status = "Now Processing: $([string]$_.Properties.name)"
                 }
 
                 Write-Progress @Params
@@ -189,9 +193,11 @@ function ArtifactCollector {
             } # $Subnets
 
             Write-Verbose -Message 'Start gathering computers'
-            $Computers = ([adsisearcher]"(objectClass=computer)").FindAll() | ForEach-Object {
+            $ComputerSearcher = New-Object -TypeName System.DirectoryServices.DirectorySearcher
+            $ComputerSearcher.Filter = "(objectClass=computer)"
+            $Computers = $ComputerSearcher.FindAll() | ForEach-Object {
 
-                [pscustomobject][ordered]@{
+                New-Object -TypeName psobject -Property @{
                     ComputerName = [string]$_.Properties.name
                     OperatingSystem = [string]$_.Properties.operatingsystem
                     DistinguishedName = [string]$_.Properties.distinguishedname
@@ -210,12 +216,17 @@ function ArtifactCollector {
             } # $Computers
 
             Write-Verbose -Message 'Start gathering users'
-            $Users = ([adsisearcher]"(&(objectCategory=person)(objectClass=user))").FindAll() | ForEach-Object {
+            $UserSearcher = New-Object -TypeName System.DirectoryServices.DirectorySearcher
+            $UserSearcher.Filter = "(&(objectCategory=person)(objectClass=user))"
+            $Users = $UserSearcher.FindAll() | ForEach-Object {
 
                 $SamAccountName = [string]$_.Properties.samaccountname
+
+                <# Commented out until I figure out how to convert SIDs in Constrained Language Mode
                 $objAct = New-Object System.Security.Principal.NTAccount("$SamAccountName")
                 $objSID = $objAct.Translate([System.Security.Principal.SecurityIdentifier])
                 $SID = [string]$objSID.Value
+                #>
 
                 $MemberOf = $_.Properties.memberof | ForEach-Object {
                     $EachMember = $_
@@ -225,10 +236,10 @@ function ArtifactCollector {
                     $EachMember
                 }
 
-                [pscustomobject][ordered]@{
+                New-Object -TypeName psobject -Property @{
                     SamAccountName = $SamAccountName
                     UserPrincipalName = [string]$_.Properties.userprincipalname
-                    SID = $SID
+                    #SID = $SID
                     DistinguishedName = [string]$_.Properties.distinguishedname
                     Description = [string]$_.Properties.description
                     MemberOf = $MemberOf
@@ -244,7 +255,9 @@ function ArtifactCollector {
             } # $Users
 
             Write-Verbose -Message 'Start gathering groups'
-            $Groups = ([adsisearcher]"(objectCategory=group)").FindAll() | ForEach-Object {
+            $GroupSearcher = New-Object -TypeName System.DirectoryServices.DirectorySearcher
+            $GroupSearcher.Filter = "(objectCategory=group)"
+            $Groups = $GroupSearcher.FindAll() | ForEach-Object {
 
                 $Member = $_.Properties.member | ForEach-Object {
                     $EachMember = $_
@@ -274,7 +287,7 @@ function ArtifactCollector {
                     -2147483640 {'Universal Security Group'}
                 }
 
-                [pscustomobject][ordered]@{
+                New-Object -TypeName psobject -Property @{
                     SamAccountName = [string]$_.Properties.samaccountname
                     GroupType = $GroupType
                     Description = [string]$_.Properties.description
@@ -293,12 +306,14 @@ function ArtifactCollector {
             } # $Groups
 
             Write-Verbose -Message 'Start gathering GPOs'
-            $GroupPolicies = ([adsisearcher]"(objectCategory=groupPolicyContainer)").FindAll() | ForEach-Object {
+            $GpoSearcher = New-Object -TypeName System.DirectoryServices.DirectorySearcher
+            $GpoSearcher.Filter = "(objectCategory=groupPolicyContainer)"
+            $GroupPolicies = $GpoSearcher.FindAll() | ForEach-Object {
 
                 $GpFsPath = [string]$_.Properties.gpcfilesyspath
                 $GpGuid = [string](Split-Path -Path $GpFsPath -Leaf)
 
-                [pscustomobject][ordered]@{
+                New-Object -TypeName psobject -Property @{
                     Name = [string]$_.Properties.displayname
                     DistinguishedName = [string]$_.Properties.distinguishedname
                     Path = $GpFsPath
@@ -328,7 +343,9 @@ function ArtifactCollector {
             } # $PowVer
 
             Write-Verbose -Message 'Start gathering OUs'
-            $OUs = ([adsisearcher]"(objectCategory=organizationalUnit)").FindAll() | ForEach-Object {
+            $OuSearcher = New-Object -TypeName System.DirectoryServices.DirectorySearcher
+            $GpoSearcher.Filter = "(objectCategory=organizationalUnit)"
+            $OUs = $GpoSearcher.FindAll() | ForEach-Object {
 
                 $GpLink = $_.Properties.gplink
 
@@ -337,7 +354,7 @@ function ArtifactCollector {
 
                     Write-Verbose -Message 'Linked GPOs detected'
 
-                    Write-Verbose -Message 'Parsing gplink [string] into [pscustomobject[]]'
+                    Write-Verbose -Message 'Parsing gplink [string] into [psobject[]]'
                     $LinkedGPOs = $GpLink.Split('][') | Where-Object { $_ -imatch 'cn=' } | ForEach-Object {
 
                         $Guid = $_.Split(';')[0].Trim('[').Split(',')[0] -ireplace 'LDAP://cn=',''
@@ -355,7 +372,7 @@ function ArtifactCollector {
 
                         }
 
-                        [pscustomobject][ordered]@{
+                        New-Object -TypeName psobject -Property @{
                             Name = $Name
                             Guid = $Guid
                             Enforced = $Enforced
@@ -382,7 +399,7 @@ function ArtifactCollector {
 
                 }
 
-                [pscustomobject][ordered]@{
+                New-Object -TypeName psobject -Property @{
                     Name = [string]$_.Properties.name
                     DistinguishedName = [string]$_.Properties.distinguishedname
                     Description = [string]$_.Properties.description
@@ -399,7 +416,7 @@ function ArtifactCollector {
 
             } # $OUs
 
-            $AdInfo = [pscustomobject][ordered]@{
+            $AdInfo = New-Object -TypeName psobject -Property @{
                 Domain = $DomainName
                 DomainControllers = $DomainControllers
                 DhcpServers = $DhcpServers
@@ -726,9 +743,9 @@ function ArtifactCollector {
         $DirName = 'NTP'
 
         Write-Verbose -Message 'Gathering Time Servers to Check'
-        $NtpServersToCheck = New-Object -TypeName System.Collections.ArrayList
-        $HypervHosts | ForEach-Object { [void]$NtpServersToCheck.Add($_) }
-        $AdInfo.DomainControllers.Name | ForEach-Object { [void]$NtpServersToCheck.Add($_) }
+        $NtpServersToCheck = @()
+        $HypervHosts | ForEach-Object { $NtpServersToCheck += $_ }
+        $AdInfo.DomainControllers.Name | ForEach-Object { $NtpServersToCheck += $_ }
 
         Write-Verbose -Message 'Gathering Time Configuration From the Registry'
         $W32tmRegistry = Get-ItemProperty -Path HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Parameters |
@@ -742,7 +759,7 @@ function ArtifactCollector {
                 ForEach-Object { $_.ToString() }
 
             Write-Progress -Activity 'Gathering Time Settings' -Status "Now Processing: $_"
-            [pscustomobject][ordered]@{
+            New-Object -TypeName psobject -Property @{
                 ComputerName = $_
                 W32tmMonitorOutput = $W32tmMonitorOutput
             }
@@ -754,7 +771,7 @@ function ArtifactCollector {
             Select-Object -Skip 1 |
             ForEach-Object { $_.ToString() }
 
-        $TimeConfig = [pscustomobject][ordered]@{
+        $TimeConfig = New-Object -TypeName psobject -Property @{
             ComputerName = $env:COMPUTERNAME
             RegType = $W32tmRegistry.Type
             RegServiceDll = $W32tmRegistry.ServiceDll
@@ -871,13 +888,13 @@ function ArtifactCollector {
 
     end {
 
-        $GlobalStopwatch.Stop()
-        $Seconds = [math]::Round($GlobalStopwatch.Elapsed.TotalSeconds)
+        $EndTime = Get-Date
+        $Seconds = [int](([string]((New-TimeSpan -Start $StartTime -End $EndTime).TotalSeconds)).Split('.')[0])
         $ArtifactZip = Get-Item -Path $ArtifactFile
 
-        [pscustomobject][ordered]@{
+        New-Object -TypeName psobject -Property @{
             Name = (Split-Path -Path $ArtifactZip.FullName -Leaf)
-            Size = "$([math]::Round($(($ArtifactZip.Length)/1MB))) MB"
+            Size = "$($(($ArtifactZip.Length)/1MB)) MB"
             Time = "$Seconds sec"
             Path = $ArtifactZip.FullName
             Comment = "Please arrange to get the '$($ArtifactZip.Name)' file to the cyber assessment team."
