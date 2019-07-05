@@ -437,7 +437,7 @@ function ArtifactCollector {
 
                 $DirName = 'EventLogs'
 
-                $DcLogs = New-Object -TypeName System.Collections.ArrayList
+                New-Item -Path .\$DirName -ItemType Directory | Out-Null
 
                 $DCs | ForEach-Object {
 
@@ -446,7 +446,7 @@ function ArtifactCollector {
                     $ErrorActionPreferenceBak = $ErrorActionPreference
                     $ErrorActionPreference = [System.Management.Automation.ActionPreference]::Stop
 
-                    try {
+                    $DcLogs = try {
 
                         $Params = @{
                             Activity = 'Active Directory: Gathering Event Logs'
@@ -462,15 +462,7 @@ function ArtifactCollector {
                             MaxEvents = 1000
                         }
 
-                        $DcEvents = Get-WinEvent @Params
-
-                        foreach ($DcEvent in $DcEvents) {
-
-                            [void]$DcLogs.Add($DcEvent)
-
-                        } #foreach
-
-                        Remove-Variable -Name DcEvents
+                        Get-WinEvent @Params
 
                     } catch {
 
@@ -480,17 +472,7 @@ function ArtifactCollector {
 
                     $ErrorActionPreference = $ErrorActionPreferenceBak
 
-                } # DC Logs
-
-                if ($DcLogs) {
-
-                    New-Item -Path .\$DirName -ItemType Directory | Out-Null
-
-                    $DcLogs = $DcLogs | Sort-Object -Property TimeCreated
-
-                    $DcLogs | Export-Clixml -Path .\$DirName\DcLogs.xml
-
-                } #if ($DcLogs)
+                } | Export-Clixml -Path .\$DirName\DcLogs.xml
 
             } #if ($DCs)
             ### endregion AD ###
@@ -587,25 +569,16 @@ function ArtifactCollector {
         ### region Sophos ###
         $DirName = 'Sophos'
 
-        $Sophos = New-Object -TypeName System.Collections.ArrayList
         $SophosPath = "$env:ProgramData\Sophos"
+        $SophosNtp = "$SophosPath\Sophos Network Threat Protection\Logs\SntpService.log"
+        $SophosAv = "$SophosPath\Sophos Anti-Virus\Logs\SAV.txt"
 
         $Params = @{
-            Path = "$SophosPath\Sophos Network Threat Protection\Logs\SntpService.log"
+            Path = $SophosNtp,$SophosAv
             ErrorAction = 'SilentlyContinue'
         }
 
-        $SophosNtp = Resolve-Path @Params
-
-        $Params = @{
-            Path = "$SophosPath\Sophos Anti-Virus\Logs\SAV.txt"
-            ErrorAction = 'SilentlyContinue'
-        }
-
-        $SophosAv = Resolve-Path @Params
-
-        $SophosNtp | ForEach-Object { [void]$Sophos.Add($_) }
-        $SophosAv | ForEach-Object { [void]$Sophos.Add($_) }
+        $Sophos = Resolve-Path @Params
 
         if ($Sophos) {
 
@@ -632,14 +605,10 @@ function ArtifactCollector {
         ### region Symantec ###
         $DirName = 'Symantec'
 
-        $Symantec = New-Object -TypeName System.Collections.ArrayList
         $SepLogPath = "$env:ProgramData\Symantec\Symantec Endpoint Protection\CurrentVersion\Data\Logs"
-
-        $SepSecLog = Resolve-Path -Path "$SepLogPath\seclog.log" -ErrorAction SilentlyContinue
-        $SepTraLog = Resolve-Path -Path "$SepLogPath\tralog.log" -ErrorAction SilentlyContinue
-
-        $SepSecLog | ForEach-Object { [void]$Symantec.Add($_) }
-        $SepTraLog | ForEach-Object { [void]$Symantec.Add($_) }
+        $SepSecLog = "$SepLogPath\seclog.log"
+        $SepTraLog = "$SepLogPath\tralog.log"
+        $Symantec = Resolve-Path -Path $SepSecLog,$SepTraLog -ErrorAction SilentlyContinue
 
         if ($Symantec) {
 
