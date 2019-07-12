@@ -13,6 +13,11 @@ function ArtifactCollector {
             - Wi-Fi Profiles
             - Time Settings
             - Windows Event Collector (WEC) Configuration
+            - Mapped Drives
+            - Network Shares
+            - Access Control Lists
+            - DNS Client Cache
+            - Network Neighbors (ARP, ND, etc.)
     .EXAMPLE
         ArtifactCollector
         Collects all artifacts and zips them into an archive for transport.
@@ -66,6 +71,11 @@ function ArtifactCollector {
             - Wi-Fi Profiles
             - Time Settings
             - Windows Event Collector (WEC) Configuration
+            - Mapped Drives
+            - Network Shares
+            - Access Control Lists
+            - DNS Client Cache
+            - Network Neighbors (ARP, ND, etc.)
     #>
 
     [CmdletBinding()]
@@ -792,6 +802,50 @@ function ArtifactCollector {
 
         } #if
         ### endregion WEC ###
+
+        ### region Baseline ###
+        Write-Verbose -Message 'Collecting Mapped Drives'
+        $SmbDriveMaps = Get-CimInstance -Namespace root/Microsoft/Windows/SMB -ClassName MSFT_SmbMapping |
+            Select-Object -Property @{Name='DriveLetter';Expression={$_.LocalPath}},
+                                    @{Name='Path';Expression={$_.RemotePath}},
+                                    RequireIntegrity,
+                                    RequirePrivacy
+
+        Write-Verbose -Message 'Collecting Local Network Shares'
+        $SmbShares = Get-CimInstance -Namespace root/Microsoft/Windows/SMB -ClassName MSFT_SmbShare |
+            Select-Object -Property Name,Path,Description
+
+        Write-Verbose -Message 'Collecting DNS Client Cache'
+        $DnsCache = Get-CimInstance -Namespace root/StandardCimv2 -ClassName MSFT_DNSClientCache |
+            Select-Object -Property Data,Entry,Name,TimeToLive
+
+        $Params = @{
+            Namespace = 'root/StandardCimv2'
+            ClassName = 'MSFT_NetNeighbor'
+            Property = 'IPAddress','LinkLayerAddress','InterfaceAlias'
+            Filter = 'NOT IPAddress LIKE "ff02%" AND NOT IPAddress LIKE "255%" AND NOT IPAddress LIKE "224%" AND NOT IPAddress LIKE "239%" AND NOT LinkLayerAddress LIKE "FF-FF-FF-FF-FF-FF" AND NOT LinkLayerAddress LIKE "00-00-00-00-00-00"'
+        }
+
+        Write-Verbose -Message 'Collecting Network Neighbors'
+        $NetNeighbors = Get-CimInstance @Params |
+            Select-Object -Property IPAddress,LinkLayerAddress,InterfaceAlias
+
+        Write-Verbose -Message 'Determining Share Drive Access'
+        $ShareDriveAccess = $SmbDriveMaps | Get-ChildItem -Directory | ForEach-Object {
+            $Acl = $_ | Get-Acl
+            $_ | Add-Member -MemberType NoteProperty -Name Owner -Value $Acl.Owner -PassThru |
+            Add-Member -MemberType NoteProperty -Name Access -Value $Acl.Access -PassThru
+        } | Select-Object -Property Name,@{Name='Path';Expression={$_.FullName}},Owner,Access
+
+        Write-Verbose -Message 'Exporting the Baseline to XML'
+        New-Object -TypeName psobject -Property @{
+            SmbDriveMaps = $SmbDriveMaps
+            ShareDriveAccess = $ShareDriveAccess
+            SmbShares = $SmbShares
+            DnsCache = $DnsCache
+            NetNeighbors = $NetNeighbors
+        } | Export-Clixml -Path .\Baseline.xml
+        ### endregion Baseline ###
 
         ### region ZIP ###
         if ($PowVer -ge 5) {
