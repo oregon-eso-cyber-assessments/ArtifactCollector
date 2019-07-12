@@ -357,7 +357,7 @@ function ArtifactCollector {
             $GpoSearcher.Filter = "(objectCategory=organizationalUnit)"
             $OUs = $GpoSearcher.FindAll() | ForEach-Object {
 
-                $GpLink = $_.Properties.gplink
+                $GpLink = [string]$_.Properties.gplink
 
                 Write-Verbose -Message 'Checking for linked GPOs'
                 if ($GpLink -imatch 'LDAP://cn=') {
@@ -367,7 +367,7 @@ function ArtifactCollector {
                     Write-Verbose -Message 'Parsing gplink [string] into [psobject[]]'
                     $LinkedGPOs = $GpLink.Split('][') | Where-Object { $_ -imatch 'cn=' } | ForEach-Object {
 
-                        $Guid = $_.Split(';')[0].Trim('[').Split(',')[0] -ireplace 'LDAP://cn=',''
+                        $Guid = $_.Split(';')[0].Trim('[').Split(',')[0] -ireplace 'LDAP://cn='
                         $Name = $GpHt[$Guid].Name
                         $EnforcedString = [string]$_.Split(';')[-1].Trim(']')
                         $EnforcedInt = [int]$EnforcedString
@@ -832,6 +832,11 @@ function ArtifactCollector {
 
         Write-Verbose -Message 'Determining Share Drive Access'
         $ShareDriveAccess = $SmbDriveMaps | Get-ChildItem -Directory | ForEach-Object {
+            $Params = @{
+                Activity = 'Baseline: Determining Share Drive Access'
+                Status = "Now Processing: $($_.Name)"
+            }
+            Write-Progress @Params
             $Acl = $_ | Get-Acl
             $_ | Add-Member -MemberType NoteProperty -Name Owner -Value $Acl.Owner -PassThru |
             Add-Member -MemberType NoteProperty -Name Access -Value $Acl.Access -PassThru
