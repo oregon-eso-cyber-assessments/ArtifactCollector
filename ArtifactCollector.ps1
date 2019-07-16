@@ -18,6 +18,7 @@ function ArtifactCollector {
             - Access Control Lists
             - DNS Client Cache
             - Network Neighbors (ARP, ND, etc.)
+            - AppLocker Policy
     .EXAMPLE
         ArtifactCollector
         Collects all artifacts and zips them into an archive for transport.
@@ -76,6 +77,7 @@ function ArtifactCollector {
             - Access Control Lists
             - DNS Client Cache
             - Network Neighbors (ARP, ND, etc.)
+            - AppLocker Policy
     #>
 
     [CmdletBinding()]
@@ -842,6 +844,9 @@ function ArtifactCollector {
             Add-Member -MemberType NoteProperty -Name Access -Value $Acl.Access -PassThru
         } | Select-Object -Property Name,@{Name='Path';Expression={$_.FullName}},Owner,Access
 
+        Write-Verbose -Message 'Exporting AppLocker Policy'
+        $AppLockerPolicy = Get-AppLockerPolicy -Effective -Xml
+
         Write-Verbose -Message 'Exporting the Baseline to XML'
         New-Object -TypeName psobject -Property @{
             SmbDriveMaps = $SmbDriveMaps
@@ -849,6 +854,7 @@ function ArtifactCollector {
             SmbShares = $SmbShares
             DnsCache = $DnsCache
             NetNeighbors = $NetNeighbors
+            AppLockerPolicy = [string]$AppLockerPolicy
         } | Export-Clixml -Path .\Baseline.xml
         ### endregion Baseline ###
 
