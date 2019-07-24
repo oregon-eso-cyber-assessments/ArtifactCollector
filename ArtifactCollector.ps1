@@ -664,6 +664,41 @@ function ArtifactCollector {
         } #if ($McAfee)
         ### endregion McAfee ###
 
+        ### region Trend Micro ###
+        $DirName = 'Trend Micro'
+
+        $TrendProgFiles = "$env:ProgramFiles*\$DirName"
+        $TrendProgData = "$env:ProgramData\$DirName"
+        $TrendPaths = (
+            "$TrendProgFiles\*.log",
+            "$TrendProgFiles\*\*.log",
+            "$TrendProgData\*.log",
+            "$TrendProgData\*\*.log"
+        )
+
+        $Params = @{
+            Path = $TrendPaths
+            ErrorAction = 'SilentlyContinue'
+        }
+
+        $TrendMicro = Resolve-Path @Params
+
+        if ($TrendMicro) {
+
+            Write-Verbose -Message "$DirName logs detected"
+            New-Item -Path .\$DirName -ItemType Directory | Out-Null
+
+            Write-Verbose -Message "Copying $DirName logs"
+            $TrendMicro | Get-Item | ForEach-Object {
+
+                $_ | Copy-Item -Destination .\$DirName\
+                Write-Progress -Activity 'Trend Micro: Gathering Logs' -Status "Now Processing: $($_.Name)"
+
+            } # $TrendMicro
+
+        } #if ($TrendMicro)
+        ### endregion Trend Micro ###
+
         ### region WiFi ###
         $DirName = 'WiFi'
 
