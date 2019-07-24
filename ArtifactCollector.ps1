@@ -821,11 +821,19 @@ function ArtifactCollector {
         $DnsCache = Get-CimInstance -Namespace root/StandardCimv2 -ClassName MSFT_DNSClientCache |
             Select-Object -Property Data,Entry,Name,TimeToLive
 
+        $v6LLMcast = 'NOT IPAddress LIKE "ff02%"'
+        $v4Bcast = 'NOT IPAddress LIKE "255%"'
+        $v4LLMcast = 'NOT IPAddress LIKE "224%"'
+        $v4Mcast = 'NOT IPAddress LIKE "239%"'
+        $EtherBcast = 'NOT LinkLayerAddress LIKE "FF-FF-FF-FF-FF-FF"'
+        $ArpFailure = 'NOT LinkLayerAddress LIKE "00-00-00-00-00-00"'
+        $NeighborFilter = "$v6LLMcast AND $v4Bcast AND $v4LLMcast AND $v4Mcast AND $EtherBcast AND $ArpFailure"
+
         $Params = @{
             Namespace = 'root/StandardCimv2'
             ClassName = 'MSFT_NetNeighbor'
             Property = 'IPAddress','LinkLayerAddress','InterfaceAlias'
-            Filter = 'NOT IPAddress LIKE "ff02%" AND NOT IPAddress LIKE "255%" AND NOT IPAddress LIKE "224%" AND NOT IPAddress LIKE "239%" AND NOT LinkLayerAddress LIKE "FF-FF-FF-FF-FF-FF" AND NOT LinkLayerAddress LIKE "00-00-00-00-00-00"'
+            Filter = $NeighborFilter
         }
 
         Write-Verbose -Message 'Collecting Network Neighbors'
