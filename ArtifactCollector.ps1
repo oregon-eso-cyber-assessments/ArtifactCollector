@@ -19,6 +19,7 @@ function ArtifactCollector {
             - DNS Client Cache
             - Network Neighbors (ARP, ND, etc.)
             - AppLocker Policy
+            - Scheduled Tasks
     .EXAMPLE
         ArtifactCollector
         Collects all artifacts and zips them into an archive for transport.
@@ -78,6 +79,7 @@ function ArtifactCollector {
             - DNS Client Cache
             - Network Neighbors (ARP, ND, etc.)
             - AppLocker Policy
+            - Scheduled Tasks
     #>
 
     [CmdletBinding()]
@@ -890,6 +892,26 @@ function ArtifactCollector {
         Write-Verbose -Message 'Exporting AppLocker Policy'
         $AppLockerPolicy = Get-AppLockerPolicy -Effective -Xml
 
+        Write-Verbose -Message 'Collecting Scheduled Tasks'
+        $Params = @{
+            Namespace = 'root/Microsoft/Windows/TaskScheduler'
+            ClassName = 'MSFT_ScheduledTask'
+        }
+
+        $ScheduledTasks = Get-CimInstance @Params |
+        Select-Object -Property TaskName,
+                                TaskPath,
+                                @{n='Execute';e={[string]$_.Actions.Execute}},
+                                @{n='Arguments';e={[string]$_.Actions.Arguments}} |
+        Where-Object { $_.Execute } | ForEach-Object {
+            $Params = @{
+                Activity = 'Baseline: Collecting Scheduled Tasks'
+                Status = "Now Processing: $($_.TaskName)"
+            }
+            Write-Progress @Params
+            $_
+        }
+
         Write-Verbose -Message 'Exporting the Baseline to XML'
         New-Object -TypeName psobject -Property @{
             SmbDriveMaps = $SmbDriveMaps
@@ -898,6 +920,7 @@ function ArtifactCollector {
             DnsCache = $DnsCache
             NetNeighbors = $NetNeighbors
             AppLockerPolicy = [string]$AppLockerPolicy
+            ScheduledTasks = $ScheduledTasks
         } | Export-Clixml -Path .\Baseline.xml
         ### endregion Baseline ###
 
