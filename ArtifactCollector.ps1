@@ -59,7 +59,7 @@ function ArtifactCollector {
                     For more information, please refer to <http://unlicense.org>
         #######################################################################################
     .LINK
-        https://github.com/oregon-eso-cyber-assessments/ArtifactCollector
+        https://github.com/stateoforegon-eis-css/ArtifactCollector
     .LINK
         https://security.oregon.gov
     .FUNCTIONALITY
@@ -997,7 +997,7 @@ function ArtifactCollector {
             Size = "$($(($ArtifactZip.Length)/1MB)) MB"
             Time = "$Seconds sec"
             Path = $ArtifactZip.FullName
-            Comment = "Please arrange to get the '$($ArtifactZip.Name)' file to the cyber assessment team."
+            Comment = "Please arrange to get the '$($ArtifactZip.Name)' file to the assessment team."
         }
 
     } #end
